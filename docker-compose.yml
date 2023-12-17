@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rubico_django
+    command: >
+      sh -c "python manage.py wait_for_db &&
+             python manage.py migrate && 
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./src:/src
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    environment:
+      DJANGO_SECRET_KEY    : ${DJANGO_SECRET_KEY}
+      DEBUG                : ${DEBUG}
+      MYSQL_PASSWORD       : ${MYSQL_PASSWORD}
+      MYSQL_DATABASE       : ${MYSQL_DATABASE}
+      MYSQL_USER           : ${MYSQL_USER}
+      ALLOWED_HOSTS        : ${DJANGO_ALLOWED_HOSTS}
+      CORS_ORIGIN_WHITELIST: ${CORS_ORIGIN_WHITELIST}
+      OPENAI_API_KEY       : ${OPENAI_API_KEY}
+      CELERY_BROKER_URL    : "redis://redis:6379/0"
+
+  mysql:
+    image: mysql:8
+    container_name: rubico_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/mysql/db:/var/lib/mysql
+    
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  #Celery
+  celery:
+    restart: always
+    build:
+      context: .
+    command: celery -A app worker -l DEBUG
+    volumes:
+      - ./src:/src
+    container_name: rubico_celery
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      - mysql
+      - redis
+      - app
+
+  # Redis
+  redis:
+    image: redis:alpine
+    container_name: rubico_redis
+  
+  
